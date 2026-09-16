@@ -29,46 +29,56 @@ const client = new Client({
     ]
 });
 
-// قراءة المتغيرات السرية من استضافة Render أماناً لك
-const CONFIG = {
-    TOKEN: process.env.TOKEN,
-    CLIENT_ID: process.env.CLIENT_ID,
-    SUPPORT_ROLE_ID: process.env.SUPPORT_ROLE_ID,
-    LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID
-};
+// تخزين إعدادات كل سيرفر مؤقتاً
+const serverConfigs = new Map();
 
-// تسجيل أوامر السلاش مع خيار اختيار القسم مباشرة من دسكورد
+// تسجيل أمر الإعداد الشامل
 const commands = [
     new SlashCommandBuilder()
-        .setName('setup-tickets')
-        .setDescription('إنشاء لوحة التذاكر في الروم الحالي')
+        .setName('setup')
+        .setDescription('إعداد نظام التذاكر بالكامل (القسم، رتبة الدعم، روم السجلات)')
         .addChannelOption(option =>
             option.setName('category')
                 .setDescription('اختر القسم (Category) الذي ستفتح تحته التذاكر')
                 .addChannelTypes(ChannelType.GuildCategory)
                 .setRequired(true))
+        .addRoleOption(option =>
+            option.setName('support_role')
+                .setDescription('اختر رتبة الإدارة أو الدعم الفني المسؤول عن التذاكر')
+                .setRequired(true))
+        .addChannelOption(option =>
+            option.setName('log_channel')
+                .setDescription('اختر روم السجلات (Logs) لإغلاق التذاكر')
+                .addChannelTypes(ChannelType.GuildText)
+                .setRequired(true))
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
 ].map(command => command.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 client.once('ready', async () => {
     console.log(`[Bot Ready] متصل باسم: ${client.user.tag}`);
     try {
-        await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
-        console.log('[Slash Commands] تم تسجيل الأوامر بنجاح.');
+        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+        console.log('[Slash Commands] تم تسجيل أمر /setup بنجاح.');
     } catch (error) {
         console.error(error);
     }
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!client.ticketCategories) client.ticketCategories = new Map();
-
     if (interaction.isChatInputCommand()) {
-        if (interaction.commandName === 'setup-tickets') {
+        if (interaction.commandName === 'setup') {
             const selectedCategory = interaction.options.getChannel('category');
-            client.ticketCategories.set(interaction.guildId, selectedCategory.id);
+            const selectedRole = interaction.options.getRole('support_role');
+            const selectedLogChannel = interaction.options.getChannel('log_channel');
+
+            // حفظ إعدادات هذا السيرفر
+            serverConfigs.set(interaction.guildId, {
+                categoryId: selectedCategory.id,
+                supportRoleId: selectedRole.id,
+                logChannelId: selectedLogChannel.id
+            });
 
             const embed = new EmbedBuilder()
                 .setTitle('🎫 نظام الدعم الفني والتذاكر المتقدم')
@@ -88,19 +98,22 @@ client.on('interactionCreate', async interaction => {
             );
 
             await interaction.channel.send({ embeds: [embed], components: [row] });
-            await interaction.reply({ content: `✅ تم إنشاء لوحة التذاكر بنجاح، وتحديد قسم **${selectedCategory.name}** لاستقبال التذاكر!`, ephemeral: true });
+            await interaction.reply({ 
+                content: `✅ تم حفظ الإعدادات بنجاح:\n📁 القسم: **${selectedCategory.name}**\n🛡️ رتبة الدعم: **${selectedRole.name}**\n📜 روم اللوغ: **${selectedLogChannel.name}**`, 
+                ephemeral: true 
+            });
         }
     }
 
+    // فتح التذكرة عبر القائمة المنسدلة
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_menu') {
-        const ticketType = interaction.values[0];
-        const typeNames = { support: 'دعم-فني', report: 'شكوى', store: 'متجر' };
-        const categoryId = client.ticketCategories.get(interaction.guildId);
-
-        if (!categoryId) {
-            return interaction.reply({ content: '❌ يجب على المسؤولين استخدام أمر `/setup-tickets` أولاً لتحديد قسم التذاكر!', ephemeral: true });
+        const config = serverConfigs.get(interaction.guildId);
+        if (!config) {
+            return interaction.reply({ content: '❌ يجب على المسؤولين إعداد البوت أولاً باستخدام أمر `/setup`!', ephemeral: true });
         }
 
+        const ticketType = interaction.values[0];
+        const typeNames = { support: 'دعم-فني', report: 'شكوى', store: 'متجر' };
         const channelName = `ticket-${typeNames[ticketType]}-${interaction.user.username}`.toLowerCase();
         
         const existingChannel = interaction.guild.channels.cache.find(c => c.name === channelName);
@@ -111,17 +124,17 @@ client.on('interactionCreate', async interaction => {
         const ticketChannel = await interaction.guild.channels.create({
             name: channelName,
             type: ChannelType.GuildText,
-            parent: categoryId,
+            parent: config.categoryId,
             permissionOverwrites: [
                 { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
                 { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-                { id: CONFIG.SUPPORT_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+                { id: config.supportRoleId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
             ]
         });
 
         const welcomeEmbed = new EmbedBuilder()
             .setTitle(`🎫 تذكرة جديدة: ${typeNames[ticketType]}`)
-            .setDescription(`مرحباً بك ${interaction.user}!\nيرجى شرح مشكلتك بالتفصيل وسيقوم فريق الإدارة (<@&${CONFIG.SUPPORT_ROLE_ID}>) بالرد عليك قريباً.`)
+            .setDescription(`مرحباً بك ${interaction.user}!\nيرجى شرح مشكلتك بالتفصيل وسيقوم فريق الإدارة (<@&${config.supportRoleId}>) بالرد عليك قريباً.`)
             .setColor('#00ffcc');
 
         const controlRow = new ActionRowBuilder().addComponents(
@@ -129,13 +142,16 @@ client.on('interactionCreate', async interaction => {
             new ButtonBuilder().setCustomId('close_ticket').setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger).setEmoji('🔒')
         );
 
-        await ticketChannel.send({ content: `${interaction.user} | <@&${CONFIG.SUPPORT_ROLE_ID}>`, embeds: [welcomeEmbed], components: [controlRow] });
+        await ticketChannel.send({ content: `${interaction.user} | <@&${config.supportRoleId}>`, embeds: [welcomeEmbed], components: [controlRow] });
         await interaction.reply({ content: `✅ تم إنشاء تذكرتك بنجاح: ${ticketChannel}`, ephemeral: true });
     }
 
+    // إدارة الأزرار داخل التذكرة
     if (interaction.isButton()) {
+        const config = serverConfigs.get(interaction.guildId);
+
         if (interaction.customId === 'claim_ticket') {
-            if (!interaction.member.roles.cache.has(CONFIG.SUPPORT_ROLE_ID)) {
+            if (!config || !interaction.member.roles.cache.has(config.supportRoleId)) {
                 return interaction.reply({ content: '❌ هذا الزر مخصص للإدارة فقط!', ephemeral: true });
             }
             
@@ -146,8 +162,8 @@ client.on('interactionCreate', async interaction => {
             await interaction.channel.send({ embeds: [claimedEmbed] });
             
             const updatedRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('claimed_status').setLabel(`مستلمة بواسطة ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+                newButtonBuilder().setCustomId('claimed_status').setLabel(`مستلمة بواسطة ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                newButtonBuilder().setCustomId('close_ticket').setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger).setEmoji('🔒')
             );
             await interaction.update({ components: [updatedRow] });
         }
@@ -155,14 +171,16 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'close_ticket') {
             await interaction.reply('🔒 جاري إغلاق التذكرة وحفظ السجل...');
 
-            const logChannel = interaction.guild.channels.cache.get(CONFIG.LOG_CHANNEL_ID);
-            if (logChannel) {
-                const logEmbed = new EmbedBuilder()
-                    .setTitle('🔒 إغلاق تذكرة دعم فني')
-                    .setDescription(`اسم الروم: **${interaction.channel.name}**\nبواسطة: ${interaction.user}`)
-                    .setColor('#ff0000')
-                    .setTimestamp();
-                await logChannel.send({ embeds: [logEmbed] });
+            if (config && config.logChannelId) {
+                const logChannel = interaction.guild.channels.cache.get(config.logChannelId);
+                if (logChannel) {
+                    const logEmbed = new EmbedBuilder()
+                        .setTitle('🔒 إغلاق تذكرة دعم فني')
+                        .setDescription(`اسم الروم: **${interaction.channel.name}**\nبواسطة: ${interaction.user}`)
+                        .setColor('#ff0000')
+                        .setTimestamp();
+                    await logChannel.send({ embeds: [logEmbed] });
+                }
             }
 
             setTimeout(async () => {
@@ -176,4 +194,4 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.login(CONFIG.TOKEN);
+client.login(process.env.TOKEN);
