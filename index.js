@@ -32,35 +32,40 @@ const client = new Client({
 // تخزين إعدادات كل سيرفر مؤقتاً
 const serverConfigs = new Map();
 
-// تسجيل أمر الإعداد الشامل
-const commands = [
-    new SlashCommandBuilder()
-        .setName('setup')
-        .setDescription('إعداد نظام التذاكر بالكامل (القسم، رتبة الدعم، روم السجلات)')
-        .addChannelOption(option =>
-            option.setName('category')
-                .setDescription('اختر القسم (Category) الذي ستفتح تحته التذاكر')
-                .addChannelTypes(ChannelType.GuildCategory)
-                .setRequired(true))
-        .addRoleOption(option =>
-            option.setName('support_role')
-                .setDescription('اختر رتبة الإدارة أو الدعم الفني المسؤول عن التذاكر')
-                .setRequired(true))
-        .addChannelOption(option =>
-            option.setName('log_channel')
-                .setDescription('اختر روم السجلات (Logs) لإغلاق التذاكر')
-                .addChannelTypes(ChannelType.GuildText)
-                .setRequired(true))
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-].map(command => command.toJSON());
-
-const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
 client.once('ready', async () => {
     console.log(`[Bot Ready] متصل باسم: ${client.user.tag}`);
+
+    // تسجيل الأوامر تلقائياً باستخدام التوكن فقط (بدون الحاجة لـ Client ID خارجي)
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('setup')
+            .setDescription('إعداد نظام التذاكر بالكامل (القسم، رتبة الدعم، روم السجلات)')
+            .addChannelOption(option =>
+                option.setName('category')
+                    .setDescription('اختر القسم (Category) الذي ستفتح تحته التذاكر')
+                    .addChannelTypes(ChannelType.GuildCategory)
+                    .setRequired(true))
+            .addRoleOption(option =>
+                option.setName('support_role')
+                    .setDescription('اختر رتبة الإدارة أو الدعم الفني المسؤول عن التذاكر')
+                    .setRequired(true))
+            .addChannelOption(option =>
+                option.setName('log_channel')
+                    .setDescription('اختر روم السجلات (Logs) لإغلاق التذاكر')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(true))
+            .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
+    ].map(command => command.toJSON());
+
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
     try {
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('[Slash Commands] تم تسجيل أمر /setup بنجاح.');
+        console.log('[Slash Commands] جاري تسجيل أوامر السلاش...');
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands },
+        );
+        console.log('[Slash Commands] تم تسجيل أمر /setup بنجاح في دسكورد!');
     } catch (error) {
         console.error(error);
     }
@@ -73,7 +78,6 @@ client.on('interactionCreate', async interaction => {
             const selectedRole = interaction.options.getRole('support_role');
             const selectedLogChannel = interaction.options.getChannel('log_channel');
 
-            // حفظ إعدادات هذا السيرفر
             serverConfigs.set(interaction.guildId, {
                 categoryId: selectedCategory.id,
                 supportRoleId: selectedRole.id,
@@ -105,7 +109,6 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // فتح التذكرة عبر القائمة المنسدلة
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_menu') {
         const config = serverConfigs.get(interaction.guildId);
         if (!config) {
@@ -146,7 +149,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content: `✅ تم إنشاء تذكرتك بنجاح: ${ticketChannel}`, ephemeral: true });
     }
 
-    // إدارة الأزرار داخل التذكرة
     if (interaction.isButton()) {
         const config = serverConfigs.get(interaction.guildId);
 
@@ -162,13 +164,13 @@ client.on('interactionCreate', async interaction => {
             await interaction.channel.send({ embeds: [claimedEmbed] });
             
             const updatedRow = new ActionRowBuilder().addComponents(
-                newButtonBuilder().setCustomId('claimed_status').setLabel(`مستلمة بواسطة ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-                newButtonBuilder().setCustomId('close_ticket').setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+                new ButtonBuilder().setCustomId('claimed_status').setLabel(`مستلمة بواسطة ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('close_history').setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger).setEmoji('🔒') // تم تعديله لتجنب التداخل
             );
             await interaction.update({ components: [updatedRow] });
         }
 
-        if (interaction.customId === 'close_ticket') {
+        if (interaction.customId === 'close_ticket' || interaction.customId === 'close_history') {
             await interaction.reply('🔒 جاري إغلاق التذكرة وحفظ السجل...');
 
             if (config && config.logChannelId) {
