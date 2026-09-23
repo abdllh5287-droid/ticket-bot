@@ -37,33 +37,31 @@ client.once('ready', async () => {
     const commands = [
         new SlashCommandBuilder()
             .setName('setup')
-            .setDescription('إعداد لوحة التذاكر')
+            .setDescription('إعداد لوحة التذاكر المتقدمة مع خيارات وإيموجيات مخصصة')
             .addChannelOption(option =>
-                option.setName('category')
-                    .setDescription('القسم (Category) الخاص بفتح التذاكر')
-                    .addChannelTypes(ChannelType.GuildCategory)
-                    .setRequired(true))
+                option.setName('category').setDescription('قسم فتح التذاكر (Category)').addChannelTypes(ChannelType.GuildCategory).setRequired(true))
             .addRoleOption(option =>
-                option.setName('support_role')
-                    .setDescription('رتبة الدعم الفني المسؤول عن التذاكر')
-                    .setRequired(true))
+                option.setName('support_role').setDescription('رتبة الدعم الفني').setRequired(true))
             .addChannelOption(option =>
-                option.setName('log_channel')
-                    .setDescription('روم السجلات (Logs) لإغلاق التذاكر')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(true))
+                option.setName('log_channel').setDescription('روم السجلات (Logs)').addChannelTypes(ChannelType.GuildText).setRequired(true))
             .addStringOption(option =>
-                option.setName('banner_url')
-                    .setDescription('رابط صورة البانر')
-                    .setRequired(true))
-            .addStringOption(option =>
-                option.setName('option1_name')
-                    .setDescription('اسم الخيار الأول (مثال: شراء)')
-                    .setRequired(true))
-            .addStringOption(option =>
-                option.setName('option2_name')
-                    .setDescription('اسم الخيار الثاني (مثال: استفسار)')
-                    .setRequired(true))
+                option.setName('banner_url').setDescription('رابط صورة البانر').setRequired(true))
+            // الخيار الأول (إلزامي)
+            .addStringOption(option => option.setName('opt1_name').setDescription('اسم الخيار الأول (مثال: شراء)').setRequired(true))
+            .addStringOption(option => option.setName('opt1_desc').setDescription('وصف الخيار الأول').setRequired(true))
+            .addStringOption(option => option.setName('opt1_emoji').setDescription('إيموجي الخيار الأول (مثال: 🛒)').setRequired(true))
+            // الخيار الثاني (إلزامي)
+            .addStringOption(option => option.setName('opt2_name').setDescription('اسم الخيار الثاني (مثال: استفسار)').setRequired(true))
+            .addStringOption(option => option.setName('opt2_desc').setDescription('وصف الخيار الثاني').setRequired(true))
+            .addStringOption(option => option.setName('opt2_emoji').setDescription('إيموجي الخيار الثاني (مثال: ❓)').setRequired(true))
+            // الخيار الثالث (اختياري)
+            .addStringOption(option => option.setName('opt3_name').setDescription('اسم الخيار الثالث (اختياري)').setRequired(false))
+            .addStringOption(option => option.setName('opt3_desc').setDescription('وصف الخيار الثالث (اختياري)').setRequired(false))
+            .addStringOption(option => option.setName('opt3_emoji').setDescription('إيموجي الخيار الثالث (اختياري)').setRequired(false))
+            // الخيار الرابع (اختياري)
+            .addStringOption(option => option.setName('opt4_name').setDescription('اسم الخيار الرابع (اختياري)').setRequired(false))
+            .addStringOption(option => option.setName('opt4_desc').setDescription('وصف الخيار الرابع (اختياري)').setRequired(false))
+            .addStringOption(option => option.setName('opt4_emoji').setDescription('إيموجي الخيار الرابع (اختياري)').setRequired(false))
             .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     ].map(command => command.toJSON());
 
@@ -83,31 +81,40 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup') {
-            // الرد الفوري لمنع خطأ الـ 3 ثواني
             await interaction.deferReply({ ephemeral: true });
 
             const category = interaction.options.getChannel('category');
             const role = interaction.options.getRole('support_role');
-            const logChannel = interaction.options.getChannel('log_channel');
+            logChannel = interaction.options.getChannel('log_channel');
             const bannerUrl = interaction.options.getString('banner_url');
-            
-            const opt1Name = interaction.options.getString('option1_name');
-            const opt2Name = interaction.options.getString('option2_name');
+
+            const optionsList = [];
+
+            // تجميع الخيارات المتاحة
+            for (let i = 1; i <= 4; i++) {
+                const name = interaction.options.getString(`opt${i}_name`);
+                const desc = interaction.options.getString(`opt${i}_desc`);
+                const emoji = interaction.options.getString(`opt${i}_emoji`);
+                if (name) {
+                    optionsList.push({
+                        label: name,
+                        description: desc || 'اختر هذا القسم',
+                        value: `option_${i}`,
+                        emoji: emoji || '🎫'
+                    });
+                }
+            }
 
             serverConfigs.set(interaction.guildId, {
                 categoryId: category.id,
                 supportRoleId: role.id,
                 logChannelId: logChannel.id,
-                optionsData: {
-                    opt1: { name: opt1Name, value: 'option_1' },
-                    opt2: { name: opt2Name, value: 'option_2' }
-                }
+                optionsMap: optionsList.reduce((acc, opt) => { acc[opt.value] = opt.label; return acc; }, {})
             });
 
-            // إرسال البانر في الروم العام
+            // إرسال البانر
             await interaction.channel.send({ content: bannerUrl });
 
-            // لوحة التذاكر
             const embed = new EmbedBuilder()
                 .setTitle('🎫 نظام الدعم الفني والمساعدة')
                 .setDescription('يرجى كتابة موضوعك بالكامل في التذكرة.\nاختر نوع الطلب من القائمة أدناه ليتم فتح غرفة خاصة بك فوراً.')
@@ -118,14 +125,11 @@ client.on('interactionCreate', async interaction => {
                 new StringSelectMenuBuilder()
                     .setCustomId('ticket_select_menu')
                     .setPlaceholder('Select a ticket option')
-                    .addOptions([
-                        { label: opt1Name, description: 'انقر هنا لاختيار هذا القسم', value: 'option_1', emoji: '🛒' },
-                        { label: opt2Name, description: 'انقر هنا لاختيار هذا القسم', value: 'option_2', emoji: '❓' }
-                    ])
+                    .addOptions(optionsList)
             );
 
             await interaction.channel.send({ content: '**يرجى كتابة موضوعك بالكامل في التذكره**', embeds: [embed], components: [row] });
-            await interaction.editReply({ content: '✅ تم إعداد لوحة التذاكر بنجاح!' });
+            await interaction.editReply({ content: '✅ تم إعداد لوحة التذاكر المخصصة بنجاح!' });
         }
     }
 
@@ -138,8 +142,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
 
         const selectedValue = interaction.values[0];
-        const optKey = selectedValue === 'option_1' ? 'opt1' : 'opt2';
-        const typeName = config.optionsData[optKey].name;
+        const typeName = config.optionsMap[selectedValue];
 
         let currentCount = ticketCounters.get(interaction.guildId) || 0;
         currentCount++;
@@ -170,6 +173,9 @@ client.on('interactionCreate', async interaction => {
             new ButtonBuilder().setCustomId('remind_user').setLabel('تذكير العضو').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
             new ButtonBuilder().setCustomId('remind_admin').setLabel('تذكير الإداري').setStyle(ButtonStyle.Secondary).setEmoji('⏰')
         );
+
+        // تخزين صاحب التذكرة في وصف الرسالة أو استخدام نظام بسيط لتعريف صاحب الروم (سنحفظه كـ topic للروم)
+        await ticketChannel.setTopic(interaction.user.id);
 
         await ticketChannel.send({ 
             content: `${interaction.user} | <@&${config.supportRoleId}>`, 
@@ -220,20 +226,37 @@ client.on('interactionCreate', async interaction => {
             }, 3000);
         }
 
+        // زر تذكير العضو (يرسل له رسالة خاصة DM برابط التذكرة)
         if (interaction.customId === 'remind_user') {
             if (!config || !interaction.member.roles.cache.has(config.supportRoleId)) {
                 return interaction.reply({ content: '❌ هذا الزر مخصص للإدارة فقط!', ephemeral: true });
             }
 
+            try {
+                const ownerId = interaction.channel.topic;
+                if (ownerId) {
+                    const ticketOwner = await interaction.guild.members.fetch(ownerId);
+                    if (ticketOwner) {
+                        await ticketOwner.send({
+                            content: `🔔 **تذكير:** هناك تذكرة مفتوحة لك في سيرفر **${interaction.guild.name}** ويجب الرد عليها.\n🔗 رابط التذكرة: ${interaction.channel}`
+                        });
+                        return interaction.reply({ content: '✅ تم إرسال رسالة تذكير خاصة (DM) لصاحب التذكرة بنجاح.', ephemeral: true });
+                    }
+                }
+            } catch (e) {
+                console.log('لم يتمكن البوت من إرسال رسالة خاصة للعضو (غالباً مقفل الخاص)');
+            }
+
+            // لو قفل الخاص، يتم التذكير في الروم كبديل
             await interaction.channel.send({
-                content: `🔔 **تذكير للعضو:** هناك تذكرة مفتوحة لك ويجب الرد عليها في هذا الروم: ${interaction.channel}`
+                content: `🔔 **تذكير للعضو:** يرجى الرد على التذكرة: ${interaction.channel}`
             });
-            await interaction.reply({ content: '✅ تم إرسال تنبيه للعضو في التذكرة بنجاح.', ephemeral: true });
+            await interaction.reply({ content: '⚠️ خاص العضو مغلق، تم إرسال التذكير داخل التذكرة بدلاً من الخاص.', ephemeral: true });
         }
 
         if (interaction.customId === 'remind_admin') {
             await interaction.channel.send({
-                content: `⏰ **تذكير لفريق الدعم (<@&${config.supportRoleId}>):** يرجى الانتباه ومراجعة هذه التذكرة المفتوحة: ${interaction.channel}`
+                content: `⏰ **تذكير لفريق الدعم (<@&${config.supportRoleId}>):** يرجى الانتباه ومراجعة هذه التذكرة: ${interaction.channel}`
             });
             await interaction.reply({ content: '✅ تم تنبيه الإدارة بنجاح.', ephemeral: true });
         }
