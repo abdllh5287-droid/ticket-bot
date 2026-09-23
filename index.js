@@ -173,6 +173,7 @@ client.on('interactionCreate', async interaction => {
             new ButtonBuilder().setCustomId('remind_admin').setLabel('تذكير الإداريين').setStyle(ButtonStyle.Secondary).setEmoji('⏰')
         );
 
+        // حفظ صاحب التذكرة في الـ Topic الخاص بالروم
         await ticketChannel.setTopic(interaction.user.id);
 
         await ticketChannel.send({ 
@@ -186,6 +187,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isButton()) {
         const config = serverConfigs.get(interaction.guildId);
+        const ticketOwnerId = interaction.channel.topic;
 
         if (interaction.customId === 'claim_ticket') {
             if (!config || !interaction.member.roles.cache.has(config.supportRoleId)) {
@@ -201,7 +203,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.customId === 'close_ticket') {
-            // التحقق أن الشخص الذي يضغط زر الإغلاق يملك رتبة الإدارة
             if (!config || !interaction.member.roles.cache.has(config.supportRoleId)) {
                 return interaction.reply({ content: '❌ زر إغلاق التذكرة مخصص لفريق الإدارة فقط!', ephemeral: true });
             }
@@ -209,7 +210,6 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: '🔒 جاري إغلاق التذكرة، سحب المحادثة، وحفظ السجل...', ephemeral: true });
 
             try {
-                // جلب رسائل التذكرة لإنشاء النسخة (Transcript)
                 const messages = await interaction.channel.messages.fetch({ limit: 100 });
                 const sortedMessages = Array.from(messages.values()).reverse();
                 
@@ -259,9 +259,8 @@ client.on('interactionCreate', async interaction => {
             }
 
             try {
-                const ownerId = interaction.channel.topic;
-                if (ownerId) {
-                    const ticketOwner = await interaction.guild.members.fetch(ownerId);
+                if (ticketOwnerId) {
+                    const ticketOwner = await interaction.guild.members.fetch(ticketOwnerId);
                     if (ticketOwner) {
                         await ticketOwner.send({
                             content: `🔔 **تذكير:** هناك تذكرة مفتوحة لك في سيرفر **${interaction.guild.name}** ويجب الرد عليها.\n🔗 رابط التذكرة: ${interaction.channel}`
@@ -279,9 +278,10 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: '⚠️ خاص العضو مغلق، تم إرسال التذكير داخل التذكرة بدلاً من الخاص.', ephemeral: true });
         }
 
+        // تذكير الإداريين (مخصص لصاحب التذكرة فقط ليقوم بتنبيه الإدارة بالخاص)
         if (interaction.customId === 'remind_admin') {
-            if (!config || !interaction.member.roles.cache.has(config.supportRoleId)) {
-                return interaction.reply({ content: '❌ هذا الزر مخصص للإدارة فقط!', ephemeral: true });
+            if (interaction.user.id !== ticketOwnerId && !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return interaction.reply({ content: '❌ هذا الزر مخصص لصاحب التذكرة فقط لتنبيه الإدارة!', ephemeral: true });
             }
 
             await interaction.deferReply({ ephemeral: true });
@@ -302,7 +302,7 @@ client.on('interactionCreate', async interaction => {
 
                     try {
                         await member.send({
-                            content: `⏰ **تذكير إداري عاجل!**\nهناك تذكرة بحاجة لاهتمامكم في سيرفر **${interaction.guild.name}**.\n📌 الغرفة: **${interaction.channel.name}**\n🔗 رابط التذكرة: ${interaction.channel}`
+                            content: `⏰ **تذكير من العضو!**\nالعضو ${interaction.user} يطلب منكم الانتباه ومراجعة تذكرته في سيرفر **${interaction.guild.name}**.\n📌 الغرفة: **${interaction.channel.name}**\n🔗 رابط التذكرة: ${interaction.channel}`
                         });
                         successCount++;
                     } catch (err) {
@@ -311,7 +311,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 await interaction.editReply({ 
-                    content: `✅ تم إرسال التذكير بالخاص لـ **${successCount}** إداري بنجاح! ${failedCount > 0 ? `(تعذر الإرسال لـ ${failedCount} بسبب إغلاق خاصهم)` : ''}` 
+                    content: `✅ تم إرسال تذكيرك بالخاص إلى **${successCount}** إداري بنجاح لكي يردوا عليك بأقرب وقت!` 
                 });
 
             } catch (error) {
