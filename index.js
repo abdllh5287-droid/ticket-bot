@@ -38,15 +38,15 @@ client.once('ready', async () => {
     const commands = [
         new SlashCommandBuilder()
             .setName('setup')
-            .setDescription('إعداد لوحة التذاكر المتقدمة مع خيارات وإيموجيات مخصصة')
+            .setDescription('إعداد لوحة التذاكر مع خيارات وإيموجيات ورَفْع الصورة مباشرة')
             .addChannelOption(option =>
                 option.setName('category').setDescription('قسم فتح التذاكر (Category)').addChannelTypes(ChannelType.GuildCategory).setRequired(true))
             .addRoleOption(option =>
                 option.setName('support_role').setDescription('رتبة الدعم الفني').setRequired(true))
             .addChannelOption(option =>
                 option.setName('log_channel').setDescription('روم السجلات (Logs)').addChannelTypes(ChannelType.GuildText).setRequired(true))
-            .addStringOption(option =>
-                option.setName('banner_url').setDescription('رابط صورة البانر').setRequired(true))
+            .addAttachmentOption(option =>
+                option.setName('banner_image').setDescription('قم برفع أو لصق صورة البانر هنا مباشرة').setRequired(true))
             // الخيار الأول (إلزامي)
             .addStringOption(option => option.setName('opt1_name').setDescription('اسم الخيار الأول (مثال: شراء)').setRequired(true))
             .addStringOption(option => option.setName('opt1_desc').setDescription('وصف الخيار الأول').setRequired(true))
@@ -73,7 +73,7 @@ client.once('ready', async () => {
             Routes.applicationCommands(client.user.id),
             { body: commands },
         );
-        console.log('[Slash Commands] تم تسجيل أمر /setup بنجاح!');
+        console.log('[Slash Commands] تم تحديث وتسجيل أمر /setup بنجاح!');
     } catch (error) {
         console.error(error);
     }
@@ -87,7 +87,7 @@ client.on('interactionCreate', async interaction => {
             const category = interaction.options.getChannel('category');
             const role = interaction.options.getRole('support_role');
             const logChannel = interaction.options.getChannel('log_channel');
-            const bannerUrl = interaction.options.getString('banner_url');
+            const bannerImage = interaction.options.getAttachment('banner_image');
 
             const optionsList = [];
 
@@ -112,7 +112,8 @@ client.on('interactionCreate', async interaction => {
                 optionsMap: optionsList.reduce((acc, opt) => { acc[opt.value] = opt.label; return acc; }, {})
             });
 
-            await interaction.channel.send({ content: bannerUrl });
+            // إرسال الصورة المرفوعة مباشرة في الروم
+            await interaction.channel.send({ files: [bannerImage.url] });
 
             const embed = new EmbedBuilder()
                 .setTitle('🎫 نظام الدعم الفني والمساعدة')
@@ -128,7 +129,7 @@ client.on('interactionCreate', async interaction => {
             );
 
             await interaction.channel.send({ content: '**يرجى كتابة موضوعك بالكامل في التذكره**', embeds: [embed], components: [row] });
-            await interaction.editReply({ content: '✅ تم إعداد لوحة التذاكر المخصصة بنجاح!' });
+            await interaction.editReply({ content: '✅ تم إعداد لوحة التذاكر مع الصورة المرفوعة بنجاح!' });
         }
     }
 
@@ -173,7 +174,6 @@ client.on('interactionCreate', async interaction => {
             new ButtonBuilder().setCustomId('remind_admin').setLabel('تذكير الإداريين').setStyle(ButtonStyle.Secondary).setEmoji('⏰')
         );
 
-        // حفظ صاحب التذكرة في الـ Topic الخاص بالروم
         await ticketChannel.setTopic(interaction.user.id);
 
         await ticketChannel.send({ 
@@ -278,7 +278,6 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: '⚠️ خاص العضو مغلق، تم إرسال التذكير داخل التذكرة بدلاً من الخاص.', ephemeral: true });
         }
 
-        // تذكير الإداريين (مخصص لصاحب التذكرة فقط ليقوم بتنبيه الإدارة بالخاص)
         if (interaction.customId === 'remind_admin') {
             if (interaction.user.id !== ticketOwnerId && !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
                 return interaction.reply({ content: '❌ هذا الزر مخصص لصاحب التذكرة فقط لتنبيه الإدارة!', ephemeral: true });
